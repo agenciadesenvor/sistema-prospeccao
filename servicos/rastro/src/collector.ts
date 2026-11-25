@@ -8,7 +8,13 @@ import { extractVisibleBusinessData } from "./maps/parser";
 import { acceptNormalConsent, actionRequiredReason, findResultsFeed, getResultCards } from "./maps/selectors";
 import { MapsActionRequired, type MapsLead } from "./maps/types";
 
-export type CollectInput = { sessionId: string; termo: string; cidade: string; target: number; isCancelled: () => boolean };
+/**
+ * skip: placeIds ou links do Maps que o sistema já tem; são pulados sem abrir (o id vem do próprio link).
+ * deadline: hora (Date.now()) em que a busca para e devolve o que já achou, em vez de estourar o tempo.
+ */
+export type CollectInput = { sessionId: string; termo: string; cidade: string; target: number; isCancelled: () => boolean; skip?: Set<string>; deadline?: number };
+
+const placeIdFromLink = (url: string) => url.match(/!1s([^!/?]+)/)?.[1];
 
 const NOT_FOUND = /O Google Maps não encontrou|não encontrou resultados|Google Maps can't find|No results found/i;
 const END_OF_LIST = /Você chegou ao fim da lista|You've reached the end of the list/i;
@@ -83,10 +89,13 @@ export async function collectPlaces(input: CollectInput): Promise<MapsLead[]> {
     }
 
     const leads: MapsLead[] = [];
-    const links = await collectLinks(page, input, input.target);
-    log(`${links.length} links na lista`);
+    const skip = input.skip ?? new Set<string>();
+    const all = await collectLinks(page, input, input.target + skip.size);
+    const links = all.filter(url => !skip.has(url) && !skip.has(placeIdFromLink(url) ?? ""));
+    log(`${all.length} links na lista, ${all.length - links.length} já conhecidos`);
     for (const url of links) {
       if (leads.length >= input.target || input.isCancelled()) break;
+      if (input.deadline && Date.now() > input.deadline) { log(`prazo atingido, devolvendo ${leads.length}`); break; }
       await pause(page, 800, 2_000);
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => undefined);
       await checkBlocked(page);

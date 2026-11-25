@@ -17,6 +17,9 @@ const PORT = Number(process.env.RASTRO_PORT) || 4310;
 const TOKEN = process.env.RASTRO_TOKEN || "";
 const SESSION_ID = "rastro";
 const SEARCH_TIMEOUT_MS = 90_000;
+// Túneis (Cloudflare) cortam a resposta em 100 s. A busca para de abrir lugares ~75 s depois que o pedido
+// chegou (contando a espera na fila) e devolve o que já achou.
+const ORCAMENTO_MS = Number(process.env.RASTRO_ORCAMENTO_MS) || 75_000;
 const MAX_PER_HOUR = Number(process.env.RASTRO_LIMITE_HORA) || 20;
 const MAX_RESULTS = Math.min(20, Number(process.env.RASTRO_MAX_RESULTADOS) || 20);
 const MAX_BODY_BYTES = 10_000;
@@ -74,8 +77,8 @@ function enqueue<T>(job: (isCancelled: () => boolean) => Promise<T>): Promise<T>
   });
 }
 
-async function runSearch(termo: string, cidade: string, target: number, isCancelled: () => boolean) {
-  try { return await collectPlaces({ sessionId: SESSION_ID, termo, cidade, target, isCancelled }); }
+async function runSearch(termo: string, cidade: string, target: number, isCancelled: () => boolean, extra: { skip?: Set<string>; deadline?: number } = {}) {
+  try { return await collectPlaces({ sessionId: SESSION_ID, termo, cidade, target, isCancelled, ...extra }); }
   catch (error) {
     if (error instanceof MapsActionRequired) throw new HttpError(503, { motivo: /verificação humana/i.test(error.reason) ? "captcha" : "acao_manual", detalhe: error.reason });
     throw error;
@@ -118,10 +121,12 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (req.method === "GET" && url.pathname === "/saude") return send(res, 200, { ok: true });
   if (!authorized(req)) return send(res, 401, { motivo: "nao_autorizado" });
 
+  const deadline = Date.now() + ORCAMENTO_MS;
+
   if (req.method === "POST" && url.pathname === "/buscar") {
     const { nome, cidade } = parse(buscarSchema, await readJson(req));
     takeRateSlot();
-    const leads = await enqueue(isCancelled => runSearch(nome, cidade, Math.min(5, MAX_RESULTS), isCancelled));
+    const leads = await enqueue(isCancelled => runSearch(nome, cidade, Math.min(5, MAX_RESULTS), isCancelled, { deadline }));
     return send(res, 200, { lugares: leads.slice(0, 5).map(toLugar) });
   }
 
@@ -129,8 +134,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
     const { tipo, cidade, excluir, limite } = parse(vizinhosSchema, await readJson(req));
     const excluded = new Set((Array.isArray(excluir) ? excluir : excluir ? [excluir] : []).filter(Boolean));
     takeRateSlot();
-    // Busca alguns a mais para compensar os excluídos (por placeId ou link do Maps).
-    const leads = await enqueue(isCancelled => runSearch(tipo, cidade, limite + excluded.size, isCancelled));
+    // Os excluídos (por placeId ou link do Maps) são pulados na lista, sem abrir a página de cada um.
+    const leads = await enqueue(isCancelled => runSearch(tipo, cidade, limite, isCancelled, { skip: excluded, deadline }));
     const lugares = leads.map(toLugar).filter(l => !(l.placeId && excluded.has(l.placeId)) && !(l.linkMaps && excluded.has(l.linkMaps))).slice(0, limite);
     return send(res, 200, { lugares });
   }

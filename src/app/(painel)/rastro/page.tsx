@@ -5,6 +5,8 @@ import { ativo } from "@/lib/config";
 import { db } from "@/lib/db";
 
 export const metadata = { title: "Rastro" };
+// A busca (Server Action desta página) espera o Rastro, que pode levar até ~100 s.
+export const maxDuration = 120;
 
 export default async function Rastro() {
   const [cfg, achados] = await Promise.all([ativo("rastro"), db.negocio.count({ where: { origem: "rastro" } })]);
