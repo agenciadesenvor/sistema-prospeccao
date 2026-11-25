@@ -52,7 +52,18 @@ if (so("--se-preciso") && ultimo === assinatura && clienteExiste) process.exit(0
 
 console.log(`\n▸ Banco: ${provedor === "sqlite" ? "SQLite local (dados/garimpo.db)" : "Postgres"}`);
 rodar("npx prisma generate");
-rodar("npx prisma db push");
+// O pooler do Supabase (modo sessão) pode estar cheio por alguns segundos
+// enquanto as instâncias do deploy anterior soltam as conexões: tenta de novo.
+for (let tentativa = 1; ; tentativa++) {
+  try {
+    rodar("npx prisma db push");
+    break;
+  } catch (e) {
+    if (provedor === "sqlite" || tentativa >= 5) throw e;
+    console.log(`\n▸ db push falhou (tentativa ${tentativa} de 5). Tentando de novo em ${tentativa * 5}s…`);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, tentativa * 5000);
+  }
+}
 mkdirSync("dados", { recursive: true });
 writeFileSync(marca, assinatura);
 
