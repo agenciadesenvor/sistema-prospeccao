@@ -6,9 +6,10 @@
 import { randomBytes, scryptSync } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import readline from "node:readline/promises";
 
-const raiz = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
+const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(raiz);
 try { process.loadEnvFile(); } catch { /* sem .env */ }
 

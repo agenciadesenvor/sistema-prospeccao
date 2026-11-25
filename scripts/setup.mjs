@@ -11,9 +11,10 @@ import { execSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import readline from "node:readline/promises";
 
-const raiz = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
+const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(raiz);
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
