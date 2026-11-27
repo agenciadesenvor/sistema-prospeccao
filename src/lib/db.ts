@@ -14,11 +14,32 @@ function criar() {
   if (url.startsWith("file:")) {
     return new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });
   }
-  // Na Vercel cada instância abre o próprio pool; o pooler do Supabase (modo
-  // sessão) aceita poucas conexões no total. Pool pequeno e que solta rápido.
+  // Na Vercel cada instância abre o próprio pool. Pool pequeno e que solta rápido.
   return new PrismaClient({
-    adapter: new PrismaPg({ connectionString: url, max: Number(process.env.DATABASE_POOL_MAX) || 3, idleTimeoutMillis: 5_000 }),
+    adapter: new PrismaPg({ connectionString: urlDeExecucao(url), max: Number(process.env.DATABASE_POOL_MAX) || 3, idleTimeoutMillis: 5_000 }),
   });
+}
+
+/**
+ * O pooler do Supabase na porta 5432 (modo sessão) aceita só 15 clientes no
+ * total: a tela de Prévias abre uma miniatura por modelo, cada uma numa
+ * instância, e o painel caía com EMAXCONNSESSION. Para as consultas do app
+ * usamos o mesmo pooler na porta 6543 (modo transação), que divide poucas
+ * conexões reais entre muitos clientes. O db push do build continua na 5432.
+ * DATABASE_MODO_SESSAO=1 desliga a troca.
+ */
+export function urlDeExecucao(url: string): string {
+  if (process.env.DATABASE_MODO_SESSAO === "1") return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname.endsWith(".pooler.supabase.com") && (u.port === "5432" || u.port === "")) {
+      u.port = "6543";
+      return u.toString();
+    }
+  } catch {
+    /* URL fora do padrão: usa como veio */
+  }
+  return url;
 }
 
 const global = globalThis as unknown as { __db?: PrismaClient };
