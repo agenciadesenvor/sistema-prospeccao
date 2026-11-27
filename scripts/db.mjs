@@ -54,11 +54,20 @@ console.log(`\n▸ Banco: ${provedor === "sqlite" ? "SQLite local (dados/garimpo
 rodar("npx prisma generate");
 // O pooler do Supabase (modo sessão) pode estar cheio por alguns segundos
 // enquanto as instâncias do deploy anterior soltam as conexões: tenta de novo.
+// Se o pooler continuar cheio e o esquema for o mesmo que já está no banco
+// (prisma/aplicado.txt, atualize ao mudar prisma/schema.base.prisma), o
+// build segue: não há tabela para aplicar, e a versão nova é justamente a
+// que solta o pooler (as consultas do app vão pela porta 6543).
+const aplicado = existsSync("prisma/aplicado.txt") ? readFileSync("prisma/aplicado.txt", "utf8").trim() : "";
 for (let tentativa = 1; ; tentativa++) {
   try {
     rodar("npx prisma db push");
     break;
   } catch (e) {
+    if (provedor === "postgresql" && tentativa >= 5 && aplicado === hash(base)) {
+      console.log("\n▸ Pooler cheio, mas o esquema é o mesmo já aplicado (prisma/aplicado.txt). Seguindo sem db push.");
+      break;
+    }
     if (provedor === "sqlite" || tentativa >= 5) throw e;
     console.log(`\n▸ db push falhou (tentativa ${tentativa} de 5). Tentando de novo em ${tentativa * 5}s…`);
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, tentativa * 5000);
