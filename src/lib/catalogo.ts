@@ -125,7 +125,8 @@ export const GRUPOS: Grupo[] = [
           { id: "token", rotulo: "Token de acesso permanente", secreto: true },
           { id: "verifyToken", rotulo: "Verify token do webhook", dica: "Qualquer texto; use o mesmo ao cadastrar /api/whatsapp/meta na Meta." },
           { id: "appSecret", rotulo: "App secret", secreto: true, opcional: true, dica: "Confere a assinatura das mensagens que chegam." },
-          { id: "template", rotulo: "Template da 1ª mensagem", opcional: true, dica: "Nome do template aprovado (com 1 variável de texto). Vazio = envia texto livre." },
+          { id: "template", rotulo: "Template da 1ª mensagem", opcional: true, dica: "Nome do template aprovado na Meta. Vazio = envia texto livre (só funciona com quem respondeu nas últimas 24 h)." },
+          { id: "templateTexto", rotulo: "Texto do template", opcional: true, dica: "O texto aprovado, com {{categoria}}, {{cidade}} ou {{nome}} no lugar de {{1}}, {{2}}… na mesma ordem. Vazio = a mensagem inteira vai numa variável só." },
         ],
       },
       {

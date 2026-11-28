@@ -67,7 +67,7 @@ export async function situacaoEnvio(negocioId: string): Promise<SituacaoEnvio> {
 const carregar = (id: string) =>
   db.negocio.findUnique({
     where: { id },
-    select: { id: true, whatsapp: true, whatsappJid: true, semWhatsapp: true, conversaPausada: true, etapa: true, _count: { select: { eventos: { where: { tipo: "MENSAGEM_ENVIADA" } } } } },
+    select: { id: true, nome: true, cidade: true, categoria: true, whatsapp: true, whatsappJid: true, semWhatsapp: true, conversaPausada: true, etapa: true, _count: { select: { eventos: { where: { tipo: "MENSAGEM_ENVIADA" } } } } },
   });
 
 /**
@@ -111,7 +111,9 @@ export async function enviarMensagem(negocioId: string, texto: string, autor: Au
     await salvarConversa({ proximoEnvioEm: new Date(Date.now() + (min + Math.random() * (max - min)) * 1000).toISOString() });
   }
 
-  const r = await cliente.enviar(destino, texto, { primeira });
+  const valores = { nome: n.nome ?? "", cidade: n.cidade ?? "", categoria: (n.categoria ?? "").toLocaleLowerCase("pt-BR") };
+  const r = await cliente.enviar(destino, texto, { primeira, valores });
+  if (r.texto) texto = r.texto;
   const evento = await db.$transaction(async (tx) => {
     const e = await registrarEvento({ negocioId: n.id, ...autor, tipo: "MENSAGEM_ENVIADA", texto, externoId: r.id, porAgente: !manual, criadoEm: r.em }, tx);
     await tx.negocio.updateMany({ where: { id: n.id, contatadoEm: null }, data: { contatadoEm: new Date() } });

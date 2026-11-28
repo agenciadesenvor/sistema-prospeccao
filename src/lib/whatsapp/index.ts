@@ -20,7 +20,8 @@ export type ClienteWhatsapp = {
   desconectar?(): Promise<Situacao>;
   /** Destino aceito pelo WhatsApp (JID ou número); null = o número não tem WhatsApp. */
   verificar(numero: string): Promise<string | null>;
-  enviar(destino: string, texto: string, opcoes: { primeira: boolean }): Promise<{ id: string; em: Date }>;
+  /** `valores` (nome, cidade, categoria…) preenchem o modelo aprovado da 1ª mensagem na API da Meta. `texto` volta quando o enviado foi outro (o modelo). */
+  enviar(destino: string, texto: string, opcoes: { primeira: boolean; valores?: Record<string, string> }): Promise<{ id: string; em: Date; texto?: string }>;
 };
 
 export class WhatsappIndisponivel extends Error {}
@@ -134,16 +135,38 @@ function meta(v: Valores): ClienteWhatsapp {
     },
     // A Cloud API não diz antes se o número tem WhatsApp: o erro aparece no envio.
     verificar: async (numero) => variantes(numero)[0] ?? null,
-    async enviar(destino, texto, { primeira }) {
+    async enviar(destino, texto, { primeira, valores = {} }) {
       const template = String(v.template || "");
-      const corpo =
-        primeira && template
-          ? { messaging_product: "whatsapp", to: destino, type: "template", template: { name: template, language: { code: "pt_BR" }, components: [{ type: "body", parameters: [{ type: "text", text: texto }] }] } }
-          : { messaging_product: "whatsapp", to: destino, type: "text", text: { body: texto, preview_url: true } };
-      const r = await http<{ messages?: { id: string }[] }>(`${GRAPH}/${pid}/messages`, { method: "POST", headers: h, body: JSON.stringify(corpo) });
+      const modelo = String(v.templateTexto || "").trim();
+      let enviado: string | undefined;
+      let corpo: Record<string, unknown>;
+      if (primeira && template) {
+        let parametros: string[];
+        if (modelo) {
+          // O texto aprovado com {{cidade}}, {{categoria}}…: cada variável, na ordem em que aparece, vira {{1}}, {{2}}… do modelo na Meta.
+          const nomes = [...modelo.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]);
+          const faltam = nomes.filter((n) => !valores[n]?.trim());
+          if (faltam.length) throw new Error(`O modelo da Meta precisa de ${faltam.join(", ")}, e este negócio não tem.`);
+          parametros = nomes.map((n) => valores[n].replace(/\s+/g, " ").trim());
+          enviado = modelo.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, n: string) => valores[n].replace(/\s+/g, " ").trim());
+        } else {
+          parametros = [texto.replace(/\s+/g, " ").trim()];
+        }
+        corpo = { messaging_product: "whatsapp", to: destino, type: "template", template: { name: template, language: { code: "pt_BR" }, components: [{ type: "body", parameters: parametros.map((t) => ({ type: "text", text: t })) }] } };
+      } else {
+        corpo = { messaging_product: "whatsapp", to: destino, type: "text", text: { body: texto, preview_url: true } };
+      }
+      let r: { messages?: { id: string }[] };
+      try {
+        r = await http<{ messages?: { id: string }[] }>(`${GRAPH}/${pid}/messages`, { method: "POST", headers: h, body: JSON.stringify(corpo) });
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        if (/131047|re-engagement/i.test(m)) throw new Error("Fora da janela de 24 horas da Meta: a pessoa não respondeu nas últimas 24 horas, então só dá para mandar um modelo aprovado.");
+        throw e;
+      }
       const id = r.messages?.[0]?.id;
       if (!id) throw new Error("A Meta não devolveu o id da mensagem");
-      return { id, em: new Date() };
+      return { id, em: new Date(), texto: enviado };
     },
   };
 }
